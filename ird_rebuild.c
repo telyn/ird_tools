@@ -138,6 +138,8 @@ u8 IRD_rebuild(char *IRD_PATH, char *FOLDER_PATH, char *ISO_OUTPUT, u8 no_verify
 	}
 
 	for (i = 0; i < ird->FileHashesNumber; i++) {
+		printf("\rfile %d / %d", i + 1, ird->FileHashesNumber);
+		fflush(stdout);
 		current_region = 0;
 		for (j = 0; j < ird->RegionHashesNumber; j++) {
 			if (ird->FileHashes[i].Sector >= ird->RegionHashes[j].Start &&
@@ -262,6 +264,7 @@ u8 IRD_rebuild(char *IRD_PATH, char *FOLDER_PATH, char *ISO_OUTPUT, u8 no_verify
 
 		FCLOSE(src);
 	}
+	printf("\n");
 
 	if (GZ_decompress7((char *)ird->Footer, ird->FooterLength, footer_path) != Z_OK) {
 		printf("Error : IRD_rebuild failed to decompress footer\n");
