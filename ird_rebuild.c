@@ -83,7 +83,11 @@ u8 IRD_rebuild(char *IRD_PATH, char *FOLDER_PATH, char *ISO_OUTPUT, u8 no_verify
 		printf("Error : IRD_rebuild failed to open header file\n");
 		goto error;
 	}
-	stat(header_path, &st);
+	if (stat(header_path, &st) != 0) {
+		printf("Error : IRD_rebuild failed to stat header file\n");
+		FCLOSE(temp);
+		goto error;
+	}
 	buf = (u8 *)malloc(st.st_size);
 	if (buf == NULL) {
 		printf("Error : IRD_rebuild malloc failed\n");
@@ -133,9 +137,17 @@ u8 IRD_rebuild(char *IRD_PATH, char *FOLDER_PATH, char *ISO_OUTPUT, u8 no_verify
 			goto error;
 		}
 
-		fseek(src, 0, SEEK_END);
+		if (fseek(src, 0, SEEK_END) != 0) {
+			printf("Error : IRD_rebuild fseek failed for %s\n", file_path);
+			FCLOSE(src);
+			goto error;
+		}
 		file_size = ftell(src);
-		fseek(src, 0, SEEK_SET);
+		if (fseek(src, 0, SEEK_SET) != 0) {
+			printf("Error : IRD_rebuild fseek failed for %s\n", file_path);
+			FCLOSE(src);
+			goto error;
+		}
 
 		if (md5_file(file_path, actual_hash) != 0) {
 			printf("Error : IRD_rebuild md5_file failed for %s\n", file_path);
@@ -220,9 +232,17 @@ u8 IRD_rebuild(char *IRD_PATH, char *FOLDER_PATH, char *ISO_OUTPUT, u8 no_verify
 		printf("Error : IRD_rebuild failed to open footer file\n");
 		goto error;
 	}
-	fseek(temp, 0, SEEK_END);
+	if (fseek(temp, 0, SEEK_END) != 0) {
+		printf("Error : IRD_rebuild fseek for footer size failed\n");
+		FCLOSE(temp);
+		goto error;
+	}
 	footer_size = ftell(temp);
-	fseek(temp, 0, SEEK_SET);
+	if (fseek(temp, 0, SEEK_SET) != 0) {
+		printf("Error : IRD_rebuild fseek for footer failed\n");
+		FCLOSE(temp);
+		goto error;
+	}
 
 	buf = (u8 *)malloc(footer_size);
 	if (buf == NULL) {
@@ -237,6 +257,11 @@ u8 IRD_rebuild(char *IRD_PATH, char *FOLDER_PATH, char *ISO_OUTPUT, u8 no_verify
 		goto error;
 	}
 	FCLOSE(temp);
+
+	if (ird->FileHashesNumber == 0) {
+		printf("Error : IRD_rebuild no files in IRD\n");
+		goto error;
+	}
 
 	{
 		u64 last_file_end = ird->FileHashes[ird->FileHashesNumber-1].Sector * SECTOR_SIZE +
