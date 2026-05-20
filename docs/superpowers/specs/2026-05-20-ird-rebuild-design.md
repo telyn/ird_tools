@@ -11,13 +11,14 @@ Add `--build`/`-b` mode to the existing `ird_tools` executable. New source files
 ## CLI
 
 ```
-ird_tools -b <ird_file> <jb_folder> [-o <output.iso>]
+ird_tools -b <ird_file> <jb_folder> [-o <output.iso>] [--no-verify]
 ```
 
 - `-b` / `--build` — select build mode
 - `<ird_file>` — path to .ird file
 - `<jb_folder>` — path to JB-format folder tree
 - `-o` / `--output` — output ISO path (default: `<ird_file>.iso`, replacing `.ird`)
+- `--no-verify` — skip file MD5 and region hash verification
 
 Flags can appear anywhere before positional args (matching existing pattern).
 
@@ -43,13 +44,13 @@ Flags can appear anywhere before positional args (matching existing pattern).
    a. Determine region (plain if region index even, encrypted if odd)
    b. Resolve path: <jb_folder>/<FilePath>
    c. Open source file, fstat size
-   d. MD5 compare against FileHashes[i].FileHash → abort on mismatch
+   d. MD5 compare against FileHashes[i].FileHash → abort on mismatch (unless --no-verify)
    e. fseek ISO to Sector * 0x800
    f. If plain: write file data as-is, pad to sector boundary
    g. If encrypted: for each 0x800 block → AES128-CBC encrypt → write
 8. Write ISO footer                     — decompress ird->Footer, write after last file
 9. Pad ISO to disc size                 — (last region End + 1) * 0x800
-10. Verify region hashes                — MD5 each region, compare RegionHashes[i].RegionHash
+10. Verify region hashes                — MD5 each region, compare RegionHashes[i].RegionHash (unless --no-verify)
 11. Cleanup temp files
 ```
 
@@ -70,8 +71,10 @@ Sector-to-byte mapping: `byte_offset = sector_LBA * 0x800`
 | IRD load fails | Print error, exit 1 |
 | Header/footer decompress fails | Print error, exit 1, delete partial ISO |
 | File missing in JB folder | Print file path, exit 1, delete partial ISO |
-| File MD5 mismatch | Print file + expected/actual hashes, exit 1, delete partial ISO |
-| Region hash mismatch | Print region index + diff, exit 1, delete partial ISO |
+| File MD5 mismatch (verify mode) | Print file + expected/actual hashes, exit 1, delete partial ISO |
+| Region hash mismatch (verify mode) | Print region index + diff, exit 1, delete partial ISO |
+| File MD5 mismatch (--no-verify) | Print warning, continue |
+| Region hash mismatch (--no-verify) | Print warning, continue |
 | fseek/fwrite fail | Print error, exit 1, delete partial ISO |
 
 ## Verification
