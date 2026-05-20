@@ -20,6 +20,7 @@
 #include "ird_build.h"
 #include "ird_iso.h"
 #include "md5.h"
+#include "ird_rebuild.h"
 
 #ifdef _WIN32
 	#define mkdir(path, mode) mkdir(path)
@@ -29,6 +30,8 @@
 
 u8 verbose=0;
 u8 get_data;
+u8 no_verify = 0;
+char *output_path = NULL;
 
 u32 IRD_extra_sig(ird_t *ird);
 u32 IRD_keys_sig(ird_t *ird);
@@ -698,9 +701,11 @@ void print_help()
 				"      -a, --all (DEFAULT)           Extract everything quoted above.\n"
 				"    -r, --rename                    Rename IRD with MGZ_SIG.\n"
 				"    -i, --integrity                 Check integrity of IRD.\n"
+				"    -b, --build                     Rebuild ISO from IRD and JB folder.\n"
 				"    -h, --help                      This help text.\n"
 				"    -v, --verbose                   Make the operation more talkative.\n"
 				"  Arguments:\n"
+				"    --no-verify                   Skip hash verification during rebuild.\n"
 				"    <input>                         Path of IRD.\n"
 				"  Note:\n"
 				"    It supports multiple inputs as files or directories.\n"
@@ -712,6 +717,7 @@ void print_help()
 #define do_extract			 	0
 #define do_rename				1
 #define do_integrity	2
+#define do_build		3
 
 void do_it(char *path, u8 task)
 {
@@ -835,6 +841,21 @@ int main (int argc, char **argv)
             verbose=1;
             a++;
         } else
+        if( !strcmp(argv[i], "-b") || !strcmp(argv[i], "--build") ) {
+            task = do_build;
+            a++;
+        } else
+        if( !strcmp(argv[i], "-o") || !strcmp(argv[i], "--output") ) {
+            if (i + 1 < argc) {
+                output_path = argv[i + 1];
+                i++;
+                a += 2;
+            }
+        } else
+        if( !strcmp(argv[i], "--no-verify") ) {
+            no_verify = 1;
+            a++;
+        } else
         if( !strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
             print_help();
             return 0;
@@ -846,6 +867,28 @@ int main (int argc, char **argv)
 	for(i=a;i<argc;i++) {
 		do_task(argv[i], task);
 	}
+
+    if (task == do_build) {
+        if (argc - a < 2) {
+            printf("Error: --build requires <ird_file> <jb_folder>\n");
+            return 1;
+        }
+        char *ird_path = argv[a];
+        char *folder = argv[a + 1];
+
+        char default_output[512];
+        if (output_path == NULL) {
+            snprintf(default_output, sizeof(default_output), "%s", ird_path);
+            int len = strlen(default_output);
+            if (len > 4 && strcasecmp(&default_output[len-4], ".ird") == 0) {
+                default_output[len-4] = 0;
+            }
+            strcat(default_output, ".iso");
+            output_path = default_output;
+        }
+
+        return IRD_rebuild(ird_path, folder, output_path, no_verify) ? 0 : 1;
+    }
 
 	rmdir("temp");
 

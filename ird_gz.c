@@ -2,7 +2,7 @@
 #include <string.h>
 #include <assert.h>
 #include <zlib.h>
-#include <malloc.h>
+#include <stdlib.h>
 
 #include "ird_gz.h"
 
