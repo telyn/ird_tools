@@ -13,6 +13,7 @@
 #define stat _stati64
 #else
 #include <string.h>
+#define strcasecmp strcmp
 #endif
 
 #include "aes.h"
