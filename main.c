@@ -865,17 +865,28 @@ int main (int argc, char **argv)
 
 	if(get_data == 0) get_data=GET_ALL;
 
-	for(i=a;i<argc;i++) {
-		do_task(argv[i], task);
+	if (task != do_build) {
+		for(i=a;i<argc;i++) {
+			do_task(argv[i], task);
+		}
 	}
 
     if (task == do_build) {
-        if (argc - a < 2) {
+        char *ird_path = NULL;
+        char *folder = NULL;
+        for (i = 1; i < argc; i++) {
+            if (argv[i][0] == '-') {
+                if ((!strcmp(argv[i], "-o") || !strcmp(argv[i], "--output")) && i + 1 < argc)
+                    i++;
+                continue;
+            }
+            if (ird_path == NULL) ird_path = argv[i];
+            else { folder = argv[i]; break; }
+        }
+        if (ird_path == NULL || folder == NULL) {
             printf("Error: --build requires <ird_file> <jb_folder>\n");
             return 1;
         }
-        char *ird_path = argv[a];
-        char *folder = argv[a + 1];
 
         char default_output[512];
         if (output_path == NULL) {

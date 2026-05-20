@@ -62,7 +62,7 @@ u8 IRD_rebuild(char *IRD_PATH, char *FOLDER_PATH, char *ISO_OUTPUT, u8 no_verify
 		goto error;
 	}
 
-	if (IRD_GetFilesPath(header_path, ird) == FAILED) {
+	if (IRD_GetFilesPath(header_path, ird) != 0) {
 		printf("Error : IRD_rebuild failed to get file paths\n");
 		goto error;
 	}
@@ -72,7 +72,26 @@ u8 IRD_rebuild(char *IRD_PATH, char *FOLDER_PATH, char *ISO_OUTPUT, u8 no_verify
 		goto error;
 	}
 
-	iso = fopen(ISO_OUTPUT, "wb");
+	{
+		int pup_found = 0;
+		for (i = 0; i < ird->FileHashesNumber; i++) {
+			if (strstr(ird->FileHashes[i].FilePath, "PS3UPDAT.PUP") != NULL) {
+				pup_found = 1;
+				sprintf(file_path, "%s%s", FOLDER_PATH, ird->FileHashes[i].FilePath);
+				if (stat(file_path, &st) != 0) {
+					printf("Error : PS3UPDAT.PUP not found at %s\n", file_path);
+					printf("  IRD expects PS3 update version: %.4s\n", ird->UpdateVersion);
+					goto error;
+				}
+				break;
+			}
+		}
+		if (!pup_found) {
+			printf("Warning : IRD contains no PS3UPDAT.PUP entry\n");
+		}
+	}
+
+	iso = fopen(ISO_OUTPUT, "w+b");
 	if (iso == NULL) {
 		printf("Error : IRD_rebuild failed to create output ISO\n");
 		goto error;
@@ -149,74 +168,96 @@ u8 IRD_rebuild(char *IRD_PATH, char *FOLDER_PATH, char *ISO_OUTPUT, u8 no_verify
 			goto error;
 		}
 
-		if (md5_file(file_path, actual_hash) != 0) {
-			printf("Error : IRD_rebuild md5_file failed for %s\n", file_path);
-			goto error;
-		}
-		if (memcmp(actual_hash, ird->FileHashes[i].FileHash, 0x10) != 0) {
-			if (no_verify) {
-				printf("Warning : IRD_rebuild MD5 mismatch for %s\n", file_path);
-			} else {
-				printf("Error : IRD_rebuild MD5 mismatch for %s\n", file_path);
-				printf("  Expected: ");
-				for (j = 0; j < 0x10; j++) printf("%02X", ird->FileHashes[i].FileHash[j]);
-				printf("\n  Actual:   ");
-				for (j = 0; j < 0x10; j++) printf("%02X", actual_hash[j]);
-				printf("\n");
+		{
+			u64 expected_size = ird->FileHashes[i].FileSize;
+
+			if (file_size < expected_size) {
+				printf("Warning : %s is %llu bytes, IRD expects %llu, will zero-pad\n",
+					file_path, (unsigned long long)file_size, (unsigned long long)expected_size);
+			} else if (file_size > expected_size) {
+				printf("Error : %s is larger than IRD expects (%llu > %llu)\n",
+					file_path, (unsigned long long)file_size, (unsigned long long)expected_size);
+				FCLOSE(src);
 				goto error;
 			}
 		}
 
 		if (fseek(iso, (long)(ird->FileHashes[i].Sector * SECTOR_SIZE), SEEK_SET) != 0) {
 			printf("Error : IRD_rebuild seek failed for sector %llu\n", (unsigned long long)ird->FileHashes[i].Sector);
+			FCLOSE(src);
 			goto error;
 		}
 
-		write_size = file_size;
+		write_size = ird->FileHashes[i].FileSize;
 		sector_lba = ird->FileHashes[i].Sector;
+		{
+			u64 remaining_source = file_size;
+			md5_context md5_ctx;
+			md5_starts(&md5_ctx);
 
-		while (write_size > 0) {
-			memset(sector_buf, 0, SECTOR_SIZE);
-			if (write_size >= SECTOR_SIZE) {
-				if (fread(sector_buf, 1, SECTOR_SIZE, src) != SECTOR_SIZE) {
-					printf("Error : IRD_rebuild read failed for %s\n", file_path);
-					goto error;
+			while (write_size > 0) {
+				memset(sector_buf, 0, SECTOR_SIZE);
+				if (remaining_source > 0) {
+					size_t to_read = remaining_source >= SECTOR_SIZE ? SECTOR_SIZE : (size_t)remaining_source;
+					if (fread(sector_buf, 1, to_read, src) != to_read) {
+						printf("Error : IRD_rebuild read failed for %s\n", file_path);
+						FCLOSE(src);
+						goto error;
+					}
+					remaining_source -= to_read;
 				}
-			} else {
-				if (fread(sector_buf, 1, write_size, src) != write_size) {
-					printf("Error : IRD_rebuild read failed for %s\n", file_path);
+
+				{
+					size_t hash_size = write_size >= SECTOR_SIZE ? SECTOR_SIZE : (size_t)write_size;
+					md5_update(&md5_ctx, sector_buf, hash_size);
+				}
+
+				if (encrypted) {
+					u8 iv[0x10];
+					u8 lba_be[8];
+					u64 be_val;
+					memset(iv, 0, 8);
+					be_val = SWAP_BE(sector_lba);
+					memcpy(lba_be, &be_val, 8);
+					memcpy(iv + 8, lba_be, 8);
+
+					u8 enc_buf[SECTOR_SIZE];
+					aes_cbc_encrypt(dec_key, iv, sector_buf, enc_buf, SECTOR_SIZE);
+					if (fwrite(enc_buf, 1, SECTOR_SIZE, iso) != SECTOR_SIZE) {
+						printf("Error : IRD_rebuild write failed for sector %llu\n", (unsigned long long)sector_lba);
+						FCLOSE(src);
+						goto error;
+					}
+				} else {
+					if (fwrite(sector_buf, 1, SECTOR_SIZE, iso) != SECTOR_SIZE) {
+						printf("Error : IRD_rebuild write failed for sector %llu\n", (unsigned long long)sector_lba);
+						FCLOSE(src);
+						goto error;
+					}
+				}
+
+				if (write_size >= SECTOR_SIZE)
+					write_size -= SECTOR_SIZE;
+				else
+					write_size = 0;
+
+				sector_lba++;
+			}
+			md5_finish(&md5_ctx, actual_hash);
+			if (memcmp(actual_hash, ird->FileHashes[i].FileHash, 0x10) != 0) {
+				if (no_verify) {
+					printf("Warning : IRD_rebuild MD5 mismatch for %s\n", file_path);
+				} else {
+					printf("Error : IRD_rebuild MD5 mismatch for %s\n", file_path);
+					printf("  Expected: ");
+					for (j = 0; j < 0x10; j++) printf("%02X", ird->FileHashes[i].FileHash[j]);
+					printf("\n  Actual:   ");
+					for (j = 0; j < 0x10; j++) printf("%02X", actual_hash[j]);
+					printf("\n");
+					FCLOSE(src);
 					goto error;
 				}
 			}
-
-			if (encrypted) {
-				u8 iv[0x10];
-				u8 lba_be[8];
-				u64 be_val;
-				memset(iv, 0, 8);
-				be_val = SWAP_BE(sector_lba);
-				memcpy(lba_be, &be_val, 8);
-				memcpy(iv + 8, lba_be, 8);
-
-				u8 enc_buf[SECTOR_SIZE];
-				aes_cbc_encrypt(dec_key, iv, sector_buf, enc_buf, SECTOR_SIZE);
-				if (fwrite(enc_buf, 1, SECTOR_SIZE, iso) != SECTOR_SIZE) {
-					printf("Error : IRD_rebuild write failed for sector %llu\n", (unsigned long long)sector_lba);
-					goto error;
-				}
-			} else {
-				if (fwrite(sector_buf, 1, SECTOR_SIZE, iso) != SECTOR_SIZE) {
-					printf("Error : IRD_rebuild write failed for sector %llu\n", (unsigned long long)sector_lba);
-					goto error;
-				}
-			}
-
-			if (write_size >= SECTOR_SIZE)
-				write_size -= SECTOR_SIZE;
-			else
-				write_size = 0;
-
-			sector_lba++;
 		}
 
 		FCLOSE(src);
