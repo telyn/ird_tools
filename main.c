@@ -32,6 +32,7 @@
 u8 verbose=0;
 u8 get_data;
 u8 no_verify = 0;
+u8 do_encrypt = 0;
 char *output_path = NULL;
 
 u32 IRD_extra_sig(ird_t *ird);
@@ -703,6 +704,7 @@ void print_help()
 				"    -r, --rename                    Rename IRD with MGZ_SIG.\n"
 				"    -i, --integrity                 Check integrity of IRD.\n"
 				"    -b, --build                     Rebuild ISO from IRD and JB folder.\n"
+			"    --encrypt                     Encrypt odd regions (default: plain).\n"
 				"    -h, --help                      This help text.\n"
 				"    -v, --verbose                   Make the operation more talkative.\n"
 				"  Arguments:\n"
@@ -857,6 +859,10 @@ int main (int argc, char **argv)
             no_verify = 1;
             a++;
         } else
+        if( !strcmp(argv[i], "--encrypt") ) {
+            do_encrypt = 1;
+            a++;
+        } else
         if( !strcmp(argv[i], "-h") || !strcmp(argv[i], "--help")) {
             print_help();
             return 0;
@@ -899,7 +905,7 @@ int main (int argc, char **argv)
             output_path = default_output;
         }
 
-        return IRD_rebuild(ird_path, folder, output_path, no_verify) ? 0 : 1;
+        return IRD_rebuild(ird_path, folder, output_path, no_verify, do_encrypt) ? 0 : 1;
     }
 
 	rmdir("temp");

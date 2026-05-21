@@ -18,7 +18,7 @@ extern void dec_d1(unsigned char* d1);
 #define SECTOR_SIZE 0x800
 #define VERIFY_BUF_SIZE 0x100000
 
-u8 IRD_rebuild(char *IRD_PATH, char *FOLDER_PATH, char *ISO_OUTPUT, u8 no_verify)
+u8 IRD_rebuild(char *IRD_PATH, char *FOLDER_PATH, char *ISO_OUTPUT, u8 no_verify, u8 encrypt)
 {
 	int ret = FAILED;
 	int i, j;
@@ -128,8 +128,10 @@ u8 IRD_rebuild(char *IRD_PATH, char *FOLDER_PATH, char *ISO_OUTPUT, u8 no_verify
 	FCLOSE(temp);
 	FREE(buf);
 
-	memcpy(dec_key, ird->Data1, 0x10);
-	dec_d1(dec_key);
+	if (encrypt) {
+		memcpy(dec_key, ird->Data1, 0x10);
+		dec_d1(dec_key);
+	}
 
 	sector_buf = (u8 *)malloc(SECTOR_SIZE);
 	if (sector_buf == NULL) {
@@ -214,7 +216,7 @@ u8 IRD_rebuild(char *IRD_PATH, char *FOLDER_PATH, char *ISO_OUTPUT, u8 no_verify
 					md5_update(&md5_ctx, sector_buf, hash_size);
 				}
 
-				if (encrypted) {
+				if (encrypted && encrypt) {
 					u8 iv[0x10];
 					u8 lba_be[8];
 					u64 be_val;
@@ -351,6 +353,15 @@ u8 IRD_rebuild(char *IRD_PATH, char *FOLDER_PATH, char *ISO_OUTPUT, u8 no_verify
 		}
 
 		for (i = 0; i < ird->RegionHashesNumber; i++) {
+			u8 is_encrypted = (i % 2 == 1);
+			if (is_encrypted && !encrypt && no_verify) {
+				continue;
+			}
+			if (is_encrypted && !encrypt) {
+				printf("Warning : IRD_rebuild region %d is encrypted on the original disc, skipping hash check (use --encrypt)\n", i + 1);
+				continue;
+			}
+
 			u64 region_start = (u64)ird->RegionHashes[i].Start * SECTOR_SIZE;
 			u64 region_size = (u64)(ird->RegionHashes[i].End - ird->RegionHashes[i].Start + 1) * SECTOR_SIZE;
 			u64 bytes_remaining = region_size;

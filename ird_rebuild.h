@@ -3,6 +3,6 @@
 
 #include "ird_build.h"
 
-u8 IRD_rebuild(char *IRD_PATH, char *FOLDER_PATH, char *ISO_OUTPUT, u8 no_verify);
+u8 IRD_rebuild(char *IRD_PATH, char *FOLDER_PATH, char *ISO_OUTPUT, u8 no_verify, u8 encrypt);
 
 #endif
